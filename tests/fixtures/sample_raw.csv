@@ -1,0 +1,20 @@
+"Table 1410: Passenger entries, exits and interchanges by station, Great Britain, annual data, April 2024 to March 2025 (TEST FIXTURE)",,,,,,,,,,,,,,,,,
+This worksheet contains one table. Some cells refer to notes which can be found on the notes worksheet.,,,,,,,,,,,,,,,,,
+"Some shorthand is used in this table, [z] = data not applicable",,,,,,,,,,,,,,,,,
+Station name,"Entries and exits: 
+Full price tickets"," Entries and exits: 
+Reduced price tickets","Entries and exits:
+Season tickets","Entries and exits:
+All tickets","Entries and exits:
+Rank",Interchanges,Main origin or destination station,Number of journeys to or from main origin or destination station,Data source or adjustments,Estimates supplemented by local ticketing data or by retailing organisation,Quality limitations,Additional information,National Location Code (NLC),"Three Letter Code
+(TLC)",Region,Station facility owner,Station group
+Abbey Wood,"3,782,112","6,137,708","1,953,866","11,873,686",5,"1,879,075",Tottenham Court Road,"1,861,410",EL,[z],[z],[z],5131,ABW,London,Elizabeth line,[z]
+Aberdeen,"722,918","1,548,878","105,864","2,377,660",6,"218,903",Edinburgh,"272,086",CS,[z],[z],[z],8976,ABD, Scotland ,ScotRail,[z]
+Altnabreac [note 1],[z],[z],[z],[z],[z],[z],[z],[z],[z],[z],[z],"Station closed for 18 months, reopened April 2025",8606,ABC,Scotland,ScotRail,[z]
+Cardiff Central,"5,000,000","6,500,000","1,200,000","12,700,000",4,"950,000",London Paddington,"410,000",[z],[z],[z],[z],3899,CDF,Wales,Network Rail,[z]
+Edinburgh,"8,000,000","12,000,000","1,500,000","21,500,000",3,"2,100,000",Glasgow Queen Street,"3,400,000",[z],[z],[z],[z],9328,EDB,Scotland,Network Rail,[z]
+London Liverpool Street,"30,000,000","40,000,000","28,015,658","98,015,658",1,"4,500,000",Stratford,"6,000,000",[z],[z],[z],[z],6965,LST,London,Network Rail,London termini
+London Waterloo,"25,000,000","30,000,000","15,389,546","70,389,546",2,"3,900,000",Clapham Junction,"5,500,000",[z],[z],[z],[z],5598,WAT,London,Network Rail,London termini
+Aberdeen,"722,918","1,548,878","105,864","2,377,660",6,"218,903",Edinburgh,"272,086",CS,[z],[z],[z],8976,ABD,Scotland,ScotRail,[z]
+,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,
