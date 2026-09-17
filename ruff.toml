@@ -1,0 +1,8 @@
+# FastAPI declares query parameters as call defaults (`= Query(...)`); tell
+# bugbear these calls are safe so B008 does not flag them.
+[lint.flake8-bugbear]
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Path",
+]
