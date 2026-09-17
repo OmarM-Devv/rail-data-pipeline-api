@@ -38,9 +38,9 @@ variable "app_port" {
 }
 
 variable "instance_type" {
-  description = "EC2 instance type. pandas needs roughly 1 GiB headroom, so t3.small is the floor."
+  description = "EC2 instance type. t3.micro (1 GiB) is Free Tier eligible and fits the ~2,600-row dataset."
   type        = string
-  default     = "t3.small"
+  default     = "t3.micro"
 }
 
 variable "root_volume_size_gb" {
@@ -80,7 +80,7 @@ variable "create_github_oidc_provider" {
 }
 
 variable "ecr_image_retention_count" {
-  description = "Number of most recent images kept in ECR; older ones are expired."
+  description = "Number of most recent images kept in ECR; older ones are expired. 3 stays under the 500 MB Free Tier."
   type        = number
-  default     = 15
+  default     = 3
 }

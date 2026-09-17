@@ -179,7 +179,7 @@ jobs:
               -v "$DATA_DIR:/app/data:ro" \
               --read-only --tmpfs /tmp \
               --cap-drop ALL --security-opt no-new-privileges \
-              --memory 1g \
+              --memory 700m \
               --log-opt max-size=10m --log-opt max-file=3 \
               "$1" >/dev/null
           }
