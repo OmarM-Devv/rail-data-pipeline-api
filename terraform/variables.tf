@@ -67,6 +67,22 @@ variable "github_repo" {
   default     = "rail-data-pipeline-api"
 }
 
+# The repo uses GitHub's immutable OIDC subject, which embeds numeric IDs:
+#   repo:<owner>@<owner_id>/<repo>@<repo_id>:ref:refs/heads/<branch>
+# Look them up with: gh api repos/<owner>/<repo>/actions/oidc/customization/sub
+# Set both to null to fall back to the legacy repo:<owner>/<repo> format.
+variable "github_owner_id" {
+  description = "Numeric GitHub owner ID used in the immutable OIDC subject claim."
+  type        = number
+  default     = 248359882
+}
+
+variable "github_repo_id" {
+  description = "Numeric GitHub repository ID used in the immutable OIDC subject claim."
+  type        = number
+  default     = 1393259138
+}
+
 variable "github_deploy_branch" {
   description = "Only workflows running on this branch may assume the deploy role."
   type        = string

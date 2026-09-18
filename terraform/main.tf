@@ -68,8 +68,13 @@ data "aws_ami" "ubuntu" {
 }
 
 locals {
-  name          = var.project_name
-  github_sub    = "repo:${var.github_owner}/${var.github_repo}:ref:refs/heads/${var.github_deploy_branch}"
+  name = var.project_name
+  github_repo_subject = (
+    var.github_owner_id != null && var.github_repo_id != null
+    ? "${var.github_owner}@${var.github_owner_id}/${var.github_repo}@${var.github_repo_id}"
+    : "${var.github_owner}/${var.github_repo}"
+  )
+  github_sub    = "repo:${local.github_repo_subject}:ref:refs/heads/${var.github_deploy_branch}"
   oidc_provider = var.create_github_oidc_provider ? aws_iam_openid_connect_provider.github[0].arn : data.aws_iam_openid_connect_provider.github[0].arn
 }
 
@@ -218,8 +223,10 @@ resource "aws_instance" "app" {
   monitoring                  = false
 
   # Bootstrap: Docker Engine, AWS CLI, and the data directory owned by the
-  # container's non-root UID (10001, see Dockerfile).
-  user_data = <<-EOF
+  # container's non-root UID (10001, see Dockerfile). Carriage returns are
+  # stripped so a Windows CRLF checkout does not change the script and force
+  # an instance replacement.
+  user_data = replace(<<-EOF
     #!/bin/bash
     set -euxo pipefail
     export DEBIAN_FRONTEND=noninteractive
@@ -231,6 +238,7 @@ resource "aws_instance" "app" {
     systemctl enable --now snap.amazon-ssm-agent.amazon-ssm-agent.service || true
     install -d -o 10001 -g 10001 -m 0750 /opt/rail/data /opt/rail/data/raw /opt/rail/data/processed
   EOF
+  , "\r", "")
 
   user_data_replace_on_change = true
 
