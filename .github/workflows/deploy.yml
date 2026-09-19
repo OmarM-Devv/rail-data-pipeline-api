@@ -159,7 +159,8 @@ jobs:
           install -d -o 10001 -g 10001 -m 0750 "$DATA_DIR" "$DATA_DIR/raw" "$DATA_DIR/processed"
 
           echo "==> Refreshing station data"
-          if ! docker run --rm --user 10001:10001 -v "$DATA_DIR:/app/data" "$IMAGE" \
+          if ! docker run --rm --user 10001:10001 --memory 700m \
+                 -v "$DATA_DIR:/app/data" "$IMAGE" \
                  python -m pipeline.cleaner; then
             if [ -s "$DATA_DIR/processed/station_usage.csv" ]; then
               echo "WARN: pipeline failed; serving the previous data file"

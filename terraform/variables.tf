@@ -38,9 +38,14 @@ variable "app_port" {
 }
 
 variable "instance_type" {
-  description = "EC2 instance type. t3.micro (1 GiB) is Free Tier eligible and fits the ~2,600-row dataset."
+  description = "EC2 instance type. Locked to t3.micro (1 GiB), which is Free Tier eligible and fits the ~2,600-row dataset."
   type        = string
   default     = "t3.micro"
+
+  validation {
+    condition     = var.instance_type == "t3.micro"
+    error_message = "instance_type must be \"t3.micro\" to stay within the AWS Free Tier."
+  }
 }
 
 variable "root_volume_size_gb" {
