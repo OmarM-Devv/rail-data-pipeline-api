@@ -1,0 +1,262 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Least privilege by default; the deploy job widens only what it needs.
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.14"
+  AWS_REGION: eu-west-2
+  CONTAINER_NAME: rail-api
+  APP_PORT: "8000"
+
+jobs:
+  test:
+    name: Lint and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Ruff lint
+        run: ruff check --output-format=github .
+
+      - name: Ruff format check
+        run: ruff format --check .
+
+      - name: Pytest
+        run: pytest --cov=api --cov=pipeline --cov-report=term-missing
+
+  deploy:
+    name: Build, push and deploy
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Never run two deploys against the same server at once.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write # required to request the GitHub OIDC token
+    env:
+      ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+      EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+    steps:
+      - name: Check required repository variables
+        env:
+          ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+        run: |
+          missing=0
+          for name in ROLE_ARN ECR_REPOSITORY EC2_INSTANCE_ID; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Repository variable for ${name} is not set (see terraform outputs)."
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - name: Check out code
+        uses: actions/checkout@v5
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          role-session-name: gha-${{ github.run_id }}-${{ github.run_attempt }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Resolve image reference
+        id: image
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          tag="${GITHUB_SHA}"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "uri=${REGISTRY}/${ECR_REPOSITORY}:${tag}" >> "$GITHUB_OUTPUT"
+          # Tags are immutable in ECR, so a re-run for the same commit reuses the image.
+          if aws ecr describe-images --repository-name "$ECR_REPOSITORY" \
+               --image-ids imageTag="$tag" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Docker Buildx
+        if: steps.image.outputs.exists == 'false'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image
+        if: steps.image.outputs.exists == 'false'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.image.outputs.uri }}
+          provenance: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Deploy to EC2 via SSM
+        env:
+          IMAGE_URI: ${{ steps.image.outputs.uri }}
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          set -euo pipefail
+
+          # Remote script. Values are injected as a header; the body is a
+          # quoted heredoc so nothing in it is expanded on the runner.
+          {
+            echo '#!/usr/bin/env bash'
+            echo 'set -euo pipefail'
+            printf 'IMAGE=%q\n'     "$IMAGE_URI"
+            printf 'REGISTRY=%q\n'  "$REGISTRY"
+            printf 'REGION=%q\n'    "$AWS_REGION"
+            printf 'CONTAINER=%q\n' "$CONTAINER_NAME"
+            printf 'PORT=%q\n'      "$APP_PORT"
+            cat <<'SCRIPT'
+          DATA_DIR=/opt/rail/data
+          export PATH="$PATH:/snap/bin"
+
+          # First deploy can race the instance bootstrap.
+          cloud-init status --wait >/dev/null 2>&1 || true
+
+          aws ecr get-login-password --region "$REGION" \
+            | docker login --username AWS --password-stdin "$REGISTRY"
+          trap 'docker logout "$REGISTRY" >/dev/null 2>&1 || true' EXIT
+          docker pull "$IMAGE"
+
+          install -d -o 10001 -g 10001 -m 0750 "$DATA_DIR" "$DATA_DIR/raw" "$DATA_DIR/processed"
+
+          echo "==> Refreshing station data"
+          if ! docker run --rm --user 10001:10001 -v "$DATA_DIR:/app/data" "$IMAGE" \
+                 python -m pipeline.cleaner; then
+            if [ -s "$DATA_DIR/processed/station_usage.csv" ]; then
+              echo "WARN: pipeline failed; serving the previous data file"
+            else
+              echo "ERROR: pipeline failed and no processed data exists" >&2
+              exit 1
+            fi
+          fi
+
+          PREVIOUS="$(docker inspect --format '{{.Config.Image}}' "$CONTAINER" 2>/dev/null || true)"
+
+          start_container() {
+            docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+            docker run -d --name "$CONTAINER" \
+              --restart unless-stopped \
+              -p "$PORT:8000" \
+              -v "$DATA_DIR:/app/data:ro" \
+              --read-only --tmpfs /tmp \
+              --cap-drop ALL --security-opt no-new-privileges \
+              --memory 1g \
+              --log-opt max-size=10m --log-opt max-file=3 \
+              "$1" >/dev/null
+          }
+
+          wait_healthy() {
+            for _ in $(seq 1 30); do
+              if curl -fsS "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then
+                return 0
+              fi
+              sleep 2
+            done
+            return 1
+          }
+
+          echo "==> Starting $IMAGE"
+          start_container "$IMAGE"
+          if wait_healthy; then
+            curl -fsS "http://127.0.0.1:$PORT/health"; echo
+            docker image prune -af --filter "until=168h" >/dev/null || true
+            echo "==> Deploy succeeded"
+            exit 0
+          fi
+
+          echo "ERROR: new container failed its health check" >&2
+          docker logs --tail 50 "$CONTAINER" >&2 || true
+          if [ -n "$PREVIOUS" ] && [ "$PREVIOUS" != "$IMAGE" ]; then
+            echo "==> Rolling back to $PREVIOUS" >&2
+            start_container "$PREVIOUS"
+            wait_healthy && echo "Rollback healthy" >&2 || echo "Rollback also unhealthy" >&2
+          fi
+          exit 1
+          SCRIPT
+          } > deploy.sh
+
+          encoded="$(base64 -w0 deploy.sh)"
+          jq -n --arg cmd "echo ${encoded} | base64 -d > /tmp/rail-deploy.sh && bash /tmp/rail-deploy.sh; rc=\$?; rm -f /tmp/rail-deploy.sh; exit \$rc" \
+            '{commands: [$cmd], executionTimeout: ["900"]}' > ssm-params.json
+
+          command_id="$(aws ssm send-command \
+            --instance-ids "$EC2_INSTANCE_ID" \
+            --document-name AWS-RunShellScript \
+            --comment "deploy ${GITHUB_SHA::7} run ${GITHUB_RUN_ID}" \
+            --parameters file://ssm-params.json \
+            --timeout-seconds 120 \
+            --query Command.CommandId --output text)"
+          echo "SSM command: $command_id"
+
+          status=Pending
+          for _ in $(seq 1 100); do
+            sleep 10
+            status="$(aws ssm get-command-invocation \
+              --command-id "$command_id" --instance-id "$EC2_INSTANCE_ID" \
+              --query Status --output text 2>/dev/null || echo Pending)"
+            echo "status: $status"
+            case "$status" in
+              Success|Failed|Cancelled|TimedOut|Undeliverable|Terminated) break ;;
+            esac
+          done
+
+          echo "::group::Remote stdout"
+          aws ssm get-command-invocation --command-id "$command_id" \
+            --instance-id "$EC2_INSTANCE_ID" --query StandardOutputContent --output text || true
+          echo "::endgroup::"
+          echo "::group::Remote stderr"
+          aws ssm get-command-invocation --command-id "$command_id" \
+            --instance-id "$EC2_INSTANCE_ID" --query StandardErrorContent --output text || true
+          echo "::endgroup::"
+
+          if [ "$status" != "Success" ]; then
+            echo "::error::Remote deploy finished with status: $status"
+            exit 1
+          fi
+
+      - name: Summary
+        run: |
+          {
+            echo "### Deployed"
+            echo "- Image: \`${{ steps.image.outputs.uri }}\`"
+            echo "- Instance: \`${EC2_INSTANCE_ID}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
