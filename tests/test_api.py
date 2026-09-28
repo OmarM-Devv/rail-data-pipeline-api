@@ -14,6 +14,7 @@ from pipeline.cleaner import (
     SchemaValidationError,
     clean,
     load_raw,
+    save_csv,
     validate_schema,
 )
 from tests.conftest import FIXTURE_CSV, FIXTURE_MIN_ROWS
@@ -180,3 +181,21 @@ def test_validation_rejects_negative_measurement():
         SchemaValidationError, match="Negative values found in interchanges"
     ):
         validate_schema(stations, min_rows=FIXTURE_MIN_ROWS)
+
+
+def test_interrupted_write_keeps_the_previous_file(tmp_path, monkeypatch):
+    target = tmp_path / "station_usage.csv"
+    target.write_text("station_name\nPrevious\n", encoding="utf-8")
+
+    def fail_part_way(self, path, **kwargs):
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("station_na")
+        raise OSError("No space left on device")
+
+    monkeypatch.setattr(pd.DataFrame, "to_csv", fail_part_way)
+
+    with pytest.raises(OSError, match="No space left on device"):
+        save_csv(pd.DataFrame({"station_name": ["New"]}), target)
+
+    assert target.read_text(encoding="utf-8") == "station_name\nPrevious\n"
+    assert list(tmp_path.iterdir()) == [target]

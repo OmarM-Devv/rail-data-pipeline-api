@@ -353,8 +353,18 @@ def validate_ticket_data(ticket_df: pd.DataFrame, station_count: int) -> None:
 
 
 def save_csv(df: pd.DataFrame, path: Path) -> Path:
+    """Write to a temporary file, then rename it over the target.
+
+    The rename is atomic on the same filesystem, so the API only ever reads
+    the previous file or the complete new one, never a partial write.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(path, index=False)
+    tmp = path.with_suffix(path.suffix + ".part")
+    try:
+        df.to_csv(tmp, index=False)
+        tmp.replace(path)
+    finally:
+        tmp.unlink(missing_ok=True)
     logger.info("Saved %d rows to %s", len(df), path)
     return path
 
