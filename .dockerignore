@@ -1,0 +1,59 @@
+# Only requirements.txt, api/ and pipeline/ are needed in the build context.
+
+# VCS and CI
+.git
+.gitignore
+.github
+
+# Python caches and bytecode
+**/__pycache__
+**/*.py[cod]
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.coverage
+.coverage.*
+htmlcov
+
+# Virtual environments
+venv
+.venv
+env
+ENV
+
+# Raw and processed data (mounted as a volume at runtime, never baked in)
+data
+*.db
+*.sqlite
+*.sqlite3
+*.parquet
+
+# Secrets and local config
+.env
+.env.*
+
+# Infrastructure and tooling
+terraform
+infra
+**/.terraform
+*.tfstate
+*.tfstate.*
+*.tfvars
+
+# Tests and dev-only files
+tests
+requirements-dev.txt
+pytest.ini
+ruff.toml
+
+# Editors and OS
+.vscode
+.idea
+.claude
+*.swp
+.DS_Store
+Thumbs.db
+
+# Docker itself
+Dockerfile
+.dockerignore
