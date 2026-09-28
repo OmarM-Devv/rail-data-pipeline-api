@@ -1,0 +1,8 @@
+# Copy to terraform.tfvars (git-ignored) and set your own public IP.
+# Find it with: curl -s https://checkip.amazonaws.com
+admin_cidr = "203.0.113.10/32"
+
+# Optional overrides
+# instance_type               = "t3.small"
+# ssh_key_name                = "my-keypair"
+# create_github_oidc_provider = false   # if the account already has one
