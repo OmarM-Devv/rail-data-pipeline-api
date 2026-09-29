@@ -2,30 +2,36 @@
 
 [![CI/CD](https://github.com/OmarM-Devv/rail-data-pipeline-api/actions/workflows/deploy.yml/badge.svg?branch=main)](https://github.com/OmarM-Devv/rail-data-pipeline-api/actions/workflows/deploy.yml)
 
-A pandas pipeline that cleans the Office of Rail and Road's station usage data
+I extended my earlier
+[rail-data-pipeline](https://github.com/OmarM-Devv/rail-data-pipeline) project
+into a small service running on AWS. The pipeline cleans the Office of Rail and
+Road's station usage data
 ([ORR Table 1410](https://dataportal.orr.gov.uk/), April 2024 to March 2025),
-served by a FastAPI REST API. The API runs in Docker on AWS EC2, on
-infrastructure provisioned with Terraform, and is deployed by a GitHub Actions
-workflow on every push to `main`.
+and a FastAPI app serves it over a REST API.
 
-The cleaning pipeline started as
-[rail-data-pipeline](https://github.com/OmarM-Devv/rail-data-pipeline). This
-repository adds the REST API, the container image, the Terraform
-infrastructure and the CI/CD deployment.
+## Overview
 
-## At a glance
+I wanted to take a working pandas pipeline and run it the way a real service
+would run: packaged in Docker, on infrastructure defined in Terraform, and
+deployed by GitHub Actions on every push to `main` without any AWS keys stored
+in GitHub.
 
-| | |
-|---|---|
-| What it does | Downloads ORR Table 1410, cleans and validates it, reshapes ticket types into rows, and serves station lookups, regional totals and busiest-station rankings over a REST API |
-| Data | 2,589 stations and 7,767 ticket-type rows (2,589 × 3) from the 2024-25 release |
-| Stack | Python 3.14, pandas, FastAPI, Docker, Terraform, AWS (EC2, ECR, IAM, SSM), GitHub Actions |
-| Tests | 15 pytest cases, 85% line coverage, ruff lint and format checks, on every push and pull request |
-| Deployment | Deployed to AWS `eu-west-2` and verified on 28/09/2026. A demo stack that may be torn down to save costs; `terraform apply` and a push to `main` recreate it |
-| Evidence | [System verification](#system-verification): screenshots of the pipeline, the deploy, the running service and the AWS resources |
-| Design decisions | Four [architecture decision records](docs/adr/) covering the options considered and the trade-offs |
+The pipeline downloads ORR Table 1410, validates it, reshapes the ticket types
+into rows and saves 2,589 stations and 7,767 ticket-type rows. The API serves
+station lookups, regional totals and busiest-station rankings. Each deploy
+refreshes the data in a one-off container, replaces the API container, checks
+`/health` and rolls back if the check fails. I deployed it to AWS `eu-west-2`
+and verified it on 28/09/2026. The pytest suite has 15 tests with 85% line
+coverage.
 
-The database side of my work (PostgreSQL schema design, SQL analytics,
+- **Stack:** Python 3.14, pandas, FastAPI, Docker, Terraform, AWS (EC2, ECR,
+  IAM, SSM) and GitHub Actions.
+- **Evidence:** [System verification](#system-verification) has screenshots of
+  the pipeline, the deploy, the running service and the AWS resources.
+- **Design decisions:** four [architecture decision records](docs/adr/) cover
+  the options I considered and the trade-offs.
+
+The database side of my work (PostgreSQL schema design, SQL analytics and
 transactional loading) is in
 [matchlens-analysis](https://github.com/OmarM-Devv/matchlens-analysis).
 
@@ -41,9 +47,9 @@ Plain HTTP on port 8000, with no TLS or custom domain. This is a demo stack
 and may be torn down to save costs. If the links don't respond, the
 [System verification](#system-verification) screenshots show it running.
 
-## Skills demonstrated
+## How it's built
 
-### Software engineering
+### Code and tests
 
 - **Separation of concerns.** `pipeline/` cleans and validates; `api/` serves.
   The API imports the pipeline's `SCHEMA`, so the column types the pipeline
@@ -69,7 +75,7 @@ and may be torn down to save costs. If the links don't respond, the
   with a note marker, then test the API against its output. One simulates a
   disk filling up part-way through a write.
 
-### Data engineering
+### Data pipeline
 
 - **Staged pipeline.** Fetch (raw bytes saved unchanged) → load (skipping the
   preamble rows, parsing thousands separators) → normalise headers → apply the
@@ -89,7 +95,7 @@ and may be torn down to save costs. If the links don't respond, the
   they are identifiers. Counts use pandas' nullable `Int64`, so missing values
   stay missing.
 
-### DevOps
+### Infrastructure and deployment
 
 - **Infrastructure as code.** [`terraform/`](terraform/) creates every AWS
   resource, with validation rules on the inputs: the instance type is locked to
@@ -330,7 +336,8 @@ still uses the legacy `repo:<owner>/<repo>` format.
   stack. Move it to an S3 backend if more than one person manages the
   infrastructure.
 - **Windows checkouts**: `git` may convert files to CRLF line endings. The
-  EC2 user data strips `\r` so this does not force an instance replacement.
+  Terraform code strips `\r` from the EC2 user data, so this does not force an
+  instance replacement.
   Check `terraform plan` for `must be replaced` before applying.
 
 ### Cost and teardown
@@ -538,6 +545,42 @@ dropped and `no-new-privileges`. `docker stats` shows current use against the
 sudo docker inspect rail-api --format 'memory={{.HostConfig.Memory}} readonly={{.HostConfig.ReadonlyRootfs}} capdrop={{.HostConfig.CapDrop}} secopt={{.HostConfig.SecurityOpt}}'
 sudo docker stats --no-stream rail-api
 ```
+
+## What I learned
+
+- GitHub's OIDC token for this repository uses the immutable subject format,
+  with numeric owner and repository IDs. A trust policy written for the plain
+  `repo:owner/name` form is rejected with
+  `Not authorized to perform sts:AssumeRoleWithWebIdentity`, so the policy has
+  to match the exact string.
+- A Windows checkout can add CRLF line endings to the EC2 start-up script.
+  Because a change to that script replaces the server, the Terraform code
+  strips `\r` from it, and I read `terraform plan` for `must be replaced`
+  before applying.
+- SSM Run Command can deploy to an instance with no inbound SSH, so the
+  deploy role only needs permission to send commands to one instance.
+- On a 1 GiB `t3.micro`, a memory limit on each container stops one runaway
+  process from taking Docker or the SSM agent down with it.
+- Validating both output files before writing either means a bad download
+  stops the run and the API keeps serving the last good data.
+- Writing to a temporary file and renaming it over the target makes a write
+  all-or-nothing. The first version wrote files in place; I recorded that gap
+  in [ADR 0004](docs/adr/0004-validate-before-writing-keep-last-good-data.md)
+  and then fixed it, with a test that simulates a disk filling up.
+- Missing values should stay missing. Reading `[z]` ("not applicable") as zero
+  would treat a station that reported nothing as a station nobody used.
+
+## Future improvements
+
+These are future ideas, not completed parts of this project:
+
+- HTTPS with a domain name, for example behind a load balancer or a reverse
+  proxy with a certificate.
+- Alerts when `/health` fails or the data file goes stale, instead of relying
+  on the deploy check and manual checks.
+- Blue-green deploys, so the API stays up while the new container starts.
+- Terraform state in S3 with locking, so more than one person could manage
+  the stack safely.
 
 ## Data source
 
