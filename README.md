@@ -564,9 +564,10 @@ sudo docker stats --no-stream rail-api
 - Validating both output files before writing either means a bad download
   stops the run and the API keeps serving the last good data.
 - Writing to a temporary file and renaming it over the target makes a write
-  all-or-nothing. The first version wrote files in place; I recorded that gap
-  in [ADR 0004](docs/adr/0004-validate-before-writing-keep-last-good-data.md)
-  and then fixed it, with a test that simulates a disk filling up.
+  all-or-nothing. The first version wrote files in place.
+  [ADR 0004](docs/adr/0004-validate-before-writing-keep-last-good-data.md)
+  records that gap and the fix, which has a test that simulates a disk filling
+  up.
 - Missing values should stay missing. Reading `[z]` ("not applicable") as zero
   would treat a station that reported nothing as a station nobody used.
 
