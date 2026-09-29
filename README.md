@@ -35,6 +35,15 @@ The database side of my work (PostgreSQL schema design, SQL analytics and
 transactional loading) is in
 [matchlens-analysis](https://github.com/OmarM-Devv/matchlens-analysis).
 
+## Project history
+
+| When | What |
+|---|---|
+| 06/2026–09/2026 | Built the cleaning pipeline in a private repository, then published it as [rail-data-pipeline](https://github.com/OmarM-Devv/rail-data-pipeline) on 07/09/2026 |
+| About four weeks before 28/09/2026 | Built the FastAPI API and its tests on top of the pipeline, locally |
+| 28/09/2026 | Containerised it with Docker, provisioned AWS with Terraform and added the GitHub Actions deploy in [PR #1](https://github.com/OmarM-Devv/rail-data-pipeline-api/pull/1), then deployed. The first deploy failed at the OIDC step (see [What I learned](#what-i-learned)), and it was running on AWS the same evening |
+| 28/09/2026 | Added atomic file writes, the architecture decision records and the System verification screenshots |
+
 ## Live API
 
 | | |
@@ -548,15 +557,22 @@ sudo docker stats --no-stream rail-api
 
 ## What I learned
 
-- GitHub's OIDC token for this repository uses the immutable subject format,
-  with numeric owner and repository IDs. A trust policy written for the plain
-  `repo:owner/name` form is rejected with
-  `Not authorized to perform sts:AssumeRoleWithWebIdentity`, so the policy has
-  to match the exact string.
-- A Windows checkout can add CRLF line endings to the EC2 start-up script.
-  Because a change to that script replaces the server, the Terraform code
-  strips `\r` from it, and I read `terraform plan` for `must be replaced`
-  before applying.
+- **My first deploy failed at the OIDC step.** On 28/09/2026 the deploy job
+  in [run #3](https://github.com/OmarM-Devv/rail-data-pipeline-api/actions/runs/36468514172)
+  retried for over two minutes, then stopped with
+  `Could not assume role with OIDC: Not authorized to perform sts:AssumeRoleWithWebIdentity`.
+  The trust policy expected the legacy `repo:OmarM-Devv/rail-data-pipeline-api`
+  subject, but this repository's tokens use GitHub's immutable format, which
+  adds numeric owner and repository IDs. I diagnosed the mismatch, updated the
+  trust policy to the exact subject and re-ran the job, which deployed. The
+  Terraform change followed in the next commit, so a fresh `terraform apply`
+  builds the working policy.
+- **`terraform plan` wanted to replace my server.** Running it from my
+  Windows checkout showed the EC2 instance as `must be replaced`, although I
+  hadn't changed anything. Git had given the start-up script CRLF line
+  endings, so Terraform saw a different script, and a changed start-up script
+  replaces the instance. The Terraform code now strips `\r` from it, and I
+  read the plan for `must be replaced` before every apply.
 - SSM Run Command can deploy to an instance with no inbound SSH, so the
   deploy role only needs permission to send commands to one instance.
 - On a 1 GiB `t3.micro`, a memory limit on each container stops one runaway
